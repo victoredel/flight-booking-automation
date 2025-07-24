@@ -1,0 +1,63 @@
+service: technical-lambda-test
+
+frameworkVersion: '3'
+useDotenv: true
+
+provider:
+  name: aws
+  region: us-east-2
+  stage: ${opt:stage, 'dev'}
+  runtime: nodejs18.x
+  memorySize: 1024
+  timeout: 300
+  architecture: x86_64 
+  
+  environment:
+    AWS_S3_BUCKET: ${env:AWS_S3_BUCKET, ''}
+    NODE_ENV: production
+    
+  iam:
+    role: ${env:AWS_ROLE_ARN, ''}
+
+custom:
+  stage: ${opt:stage, 'dev'}
+
+functions:
+  playwrightTest:
+    image: ${env:AWS_ECR_REPOSITORY_URL, ''}:latest
+    name: technical-lambda-test
+    description: Playwright test for Aegean Air flight booking component
+    events:
+      - schedule:
+          rate: rate(1 hour)
+          enabled: true
+          input:
+            source: "scheduled-event"
+
+package:
+  individually: true
+  patterns:
+    - '!node_modules/**'
+    - '!tests/**'
+    - '!test-results/**'
+    - '!playwright-report/**'
+    - '!.git/**'
+    - '!.github/**'
+    - '!*.md'
+    - '!docker-compose.yml'
+    - '!Dockerfile'
+    - 'src/**'
+    - 'dist/**'
+    - 'package.json'
+    - 'node_modules/@aws-sdk/**'
+    - 'node_modules/playwright/**'
+    - 'node_modules/dotenv/**'
+
+resources:
+  Outputs:
+    PlaywrightTestLambdaFunction:
+      Description: "Playwright Test Lambda Function ARN"
+      Value:
+        Ref: PlaywrightTestLambdaFunction
+      Export:
+        Name: ${self:service}-${self:provider.stage}-playwright-function

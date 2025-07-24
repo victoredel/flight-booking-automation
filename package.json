@@ -1,0 +1,45 @@
+{
+  "name": "flight-booking-automation",
+  "version": "1.0.0",
+  "description": "Playwright tests for flight booking component with AWS integration",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "build:clean": "rm -rf dist && npm run build",
+    "dev": "tsc --watch",
+    "deploy:ecr": "node scripts/deploy-to-ecr.js",
+    "deploy": "npm run build && npx serverless deploy --stage dev",
+    "remove": "npx serverless remove --stage dev",
+    "invoke": "npx serverless invoke -f playwrightTest"
+  },
+  "keywords": [
+    "playwright",
+    "aws",
+    "lambda",
+    "serverless",
+    "docker",
+    "testing"
+  ],
+  "author": "Technical Test",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.450.0",
+    "playwright": "1.54.1",
+    "@sparticuz/chromium": "138.0.2",
+    "playwright-core": "1.54.1",
+    "@playwright/test": "1.54.1",
+    "aws-lambda": "^1.0.7",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.126",
+    "@types/node": "^20.8.0",
+    "serverless": "^3.38.0",
+    "serverless-dotenv-plugin": "^4.0.2",
+    "serverless-esbuild": "^1.55.1",
+    "typescript": "^5.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
