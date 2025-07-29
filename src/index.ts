@@ -170,7 +170,9 @@ export const handler = async (
 
     // Generate unique filename with timestamp
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const filename = `aegean-flight-booking-${timestamp}.png`;
+    const filename = `${
+      (process.env.PREFIX, "")
+    }-aegean-flight-booking-${timestamp}.png`;
 
     // Verify that the file exists before uploading
     try {
