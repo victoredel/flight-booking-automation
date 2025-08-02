@@ -49,6 +49,25 @@ const executeCommand = (command, errorMessage, cwd = PROJECT_ROOT) => {
   }
 };
 
+const getEcrUri = () => {
+  if (!AWS_ECR_REPOSITORY_URL) {
+    if (!AWS_ACCOUNT_ID || !AWS_REGION || !AWS_ECR_REPOSITORY) {
+      console.error('Missing AWS environment variables. Please check your .env file.');
+      process.exit(1);
+    }
+    return `${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_REPOSITORY}`;
+  } else {
+    return AWS_ECR_REPOSITORY_URL;
+  }
+};
+
+const getDockerImageName = () => {
+  if (!AWS_ECR_REPOSITORY) {
+    console.error('Missing ECR repository name. Please check your .env file.');
+    process.exit(1);
+  }
+  return `${AWS_ECR_REPOSITORY}:${IMAGE_TAG}`;
+};
 /**
  * Main process
  */
@@ -56,6 +75,9 @@ async function main() {
   try {
     console.log('====== STARTING DEPLOYMENT PROCESS ======');
     const startTime = new Date().getTime();
+    const ecrRepositoryUri = getEcrUri();
+    const dockerImageName = getDockerImageName();
+    const fullImageUri = `${ecrRepositoryUri}:${IMAGE_TAG}`;
 
     // Verify AWS credentials
     console.log('\nVerifying AWS credentials...');
@@ -69,9 +91,13 @@ async function main() {
 
     // Build Docker image
     console.log('\nBuilding Docker image...');
-  const dockerBuildCommand = `docker buildx build  --tag ${AWS_ECR_REPOSITORY_URL}:${IMAGE_TAG} .`;
-  executeCommand(dockerBuildCommand, 'Error building Docker image.');
-
+    try {
+      executeCommand(`docker buildx build --platform linux/amd64 -t ${dockerImageName} --load "${PROJECT_ROOT}"`, 'Error building Docker image');
+      console.log('Docker image built successfully');
+    } catch (error) {
+      console.error('Failed to build Docker image');
+      process.exit(1);
+    }
     // Log in to ECR
     console.log('\nLogging in to AWS ECR...');
     executeCommand(`aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com`,
@@ -111,17 +137,17 @@ async function main() {
     }
 
     // Tag image
-    console.log('\nTagging image for ECR...');
-    const ecrRepositoryUri = `${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_REPOSITORY}`;
-    executeCommand(`docker tag ${AWS_ECR_REPOSITORY}:${IMAGE_TAG} ${ecrRepositoryUri}:${IMAGE_TAG}`,
-      'Error tagging the image');
-    console.log('Image tagged successfully');
-
+    try {
+      executeCommand(`docker tag ${dockerImageName} ${fullImageUri}`, 'Error tagging the image');
+      console.log('Image tagged successfully');
+    } catch (error) {
+      console.error('Failed to tag the Docker image. This could be due to a missing local image.');
+      process.exit(1);
+    }
     // Push to ECR
     console.log('\nPushing image to ECR...');
     try {
-      executeCommand(`docker push ${ecrRepositoryUri}:${IMAGE_TAG}`,
-        'Error pushing the image to ECR');
+      executeCommand(`docker push ${fullImageUri}`, 'Error pushing the image to ECR. This could be due to permission issues.');
       console.log('Image pushed successfully to ECR');
     } catch (error) {
       console.error('Failed to push image to ECR. This could be due to permission issues.');
@@ -148,7 +174,7 @@ async function main() {
     console.log(`\nDeployment information:`);
     console.log(`- ECR repository: ${ecrRepositoryUri}`);
     console.log(`- Image tag: ${IMAGE_TAG}`);
-    console.log(`- Full URI: ${ecrRepositoryUri}:${IMAGE_TAG}`);
+    console.log(`- Full URI: ${fullImageUri}`);
 
     if (UPDATE_LAMBDA) {
       console.log(`\nYou can test the Lambda function with: npm run invoke`);
