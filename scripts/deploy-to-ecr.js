@@ -19,8 +19,10 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const AWS_ACCOUNT_ID = process.env.AWS_ACCOUNT_ID;
 const AWS_REGION = process.env.AWS_REGION;
 const AWS_ECR_REPOSITORY = process.env.AWS_ECR_REPOSITORY;
+const AWS_ECR_REPOSITORY_URL = process.env.AWS_ECR_REPOSITORY_URL;
 const IMAGE_TAG = process.env.IMAGE_TAG || 'latest';
-const DOCKERFILE_PATH = process.env.DOCKERFILE_PATH || path.resolve(__dirname, '../Dockerfile');
+const DOCKERFILE_PATH = path.resolve(__dirname, '../Dockerfile');
+const PROJECT_ROOT = path.resolve(__dirname, '..');
 const UPDATE_LAMBDA = process.env.UPDATE_LAMBDA === 'true';
 
 // Make sure Dockerfile exists
@@ -36,17 +38,16 @@ if (!fs.existsSync(DOCKERFILE_PATH) && fs.existsSync(`${DOCKERFILE_PATH}.example
  * @param {string} errorMessage - Custom error message
  * @returns {string} - Result of the command execution
  */
-function executeCommand(command, errorMessage) {
-  console.log(`Executing: ${command}`);
+const executeCommand = (command, errorMessage, cwd = PROJECT_ROOT) => {
   try {
-    const result = execSync(command, { encoding: 'utf8', stdio: 'inherit' });
-    return result;
+    console.log(`Executing: ${command}`);
+    execSync(command, { stdio: 'inherit', cwd });
   } catch (error) {
-    console.error(`ERROR: ${errorMessage}`);
+    console.error(errorMessage);
     console.error(error.message);
     process.exit(1);
   }
-}
+};
 
 /**
  * Main process
@@ -55,7 +56,7 @@ async function main() {
   try {
     console.log('====== STARTING DEPLOYMENT PROCESS ======');
     const startTime = new Date().getTime();
-    
+
     // Verify AWS credentials
     console.log('\nVerifying AWS credentials...');
     try {
@@ -65,19 +66,18 @@ async function main() {
       console.error('No valid AWS credentials found. Please configure AWS CLI.');
       process.exit(1);
     }
-    
+
     // Build Docker image
     console.log('\nBuilding Docker image...');
-    executeCommand(`docker build -t ${AWS_ECR_REPOSITORY}:${IMAGE_TAG} -f ${DOCKERFILE_PATH} .`, 
-      'Error building Docker image');
-    console.log('Docker image built successfully');
-    
+  const dockerBuildCommand = `docker buildx build  --tag ${AWS_ECR_REPOSITORY_URL}:${IMAGE_TAG} .`;
+  executeCommand(dockerBuildCommand, 'Error building Docker image.');
+
     // Log in to ECR
     console.log('\nLogging in to AWS ECR...');
     executeCommand(`aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com`,
       'Error logging in to ECR');
     console.log('Logged in to ECR');
-    
+
     // Verify if the repository exists - Assuming repository already exists and not trying to create it
     console.log('\nVerifying if the ECR repository exists...');
     try {
@@ -88,35 +88,35 @@ async function main() {
       console.warn(`You need to have an existing repository named '${AWS_ECR_REPOSITORY}' to proceed.`);
       console.warn('Please use the AWS console to create the repository if it does not exist.');
       console.warn('If you believe the repository exists, check your permissions and AWS credentials.');
-      
+
       // Ask user if they want to continue anyway
       const readline = require('readline');
       const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout
       });
-      
+
       const answer = await new Promise(resolve => {
         rl.question('Do you want to continue anyway? (yes/no): ', resolve);
       });
-      
+
       rl.close();
-      
+
       if (answer.toLowerCase() !== 'yes') {
         console.log('Deployment canceled.');
         process.exit(1);
       }
-      
+
       console.log('Continuing deployment...');
     }
-    
+
     // Tag image
     console.log('\nTagging image for ECR...');
     const ecrRepositoryUri = `${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWS_ECR_REPOSITORY}`;
     executeCommand(`docker tag ${AWS_ECR_REPOSITORY}:${IMAGE_TAG} ${ecrRepositoryUri}:${IMAGE_TAG}`,
       'Error tagging the image');
     console.log('Image tagged successfully');
-    
+
     // Push to ECR
     console.log('\nPushing image to ECR...');
     try {
@@ -132,30 +132,30 @@ async function main() {
       console.error('  - ecr:PutImage');
       process.exit(1);
     }
-    
+
     // Update Lambda function if necessary
     if (UPDATE_LAMBDA) {
       console.log('\nUpdating Lambda function...');
-      executeCommand('npx serverless deploy function -f playwrightTest', 
+      executeCommand('npx serverless deploy function -f playwrightTest',
         'Error updating Lambda function');
       console.log('Lambda function updated successfully');
     }
-    
+
     const endTime = new Date().getTime();
     const duration = (endTime - startTime) / 1000;
-    
+
     console.log(`\nDeployment completed in ${duration.toFixed(2)} seconds`);
     console.log(`\nDeployment information:`);
     console.log(`- ECR repository: ${ecrRepositoryUri}`);
     console.log(`- Image tag: ${IMAGE_TAG}`);
     console.log(`- Full URI: ${ecrRepositoryUri}:${IMAGE_TAG}`);
-    
+
     if (UPDATE_LAMBDA) {
       console.log(`\nYou can test the Lambda function with: npm run invoke`);
     } else {
       console.log(`\nTo update the Lambda function, run: UPDATE_LAMBDA=true node scripts/deploy-to-ecr.js`);
     }
-    
+
   } catch (error) {
     console.error('Error in deployment process:');
     console.error(error);
